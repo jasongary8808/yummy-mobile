@@ -14,6 +14,7 @@ import {
   RefreshControl,
   Alert,
 } from 'react-native';
+import { GestureHandlerRootView, Swipeable } from 'react-native-gesture-handler';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
@@ -40,6 +41,7 @@ const COLORS = {
   tealSoft: '#DCEEF2',
   line: '#EBE3D8',
   cream: '#FBF6EF',
+  danger: '#D64545',
 };
 
 const LOADING_MESSAGES = [
@@ -69,6 +71,7 @@ const shadow = Platform.select({
 function haptic(style = 'light') {
   if (style === 'success') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   else if (style === 'medium') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  else if (style === 'warning') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
   else Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 }
 
@@ -93,11 +96,11 @@ function greeting() {
   return 'Good evening';
 }
 
-function Pressy({ onPress, onLongPress, style, children, scaleTo = 0.96 }) {
+function Pressy({ onPress, style, children, scaleTo = 0.96 }) {
   const scale = useRef(new Animated.Value(1)).current;
   const animateTo = (v) => Animated.spring(scale, { toValue: v, useNativeDriver: true, speed: 30, bounciness: 6 }).start();
   return (
-    <Pressable onPressIn={() => animateTo(scaleTo)} onPressOut={() => animateTo(1)} onPress={onPress} onLongPress={onLongPress}>
+    <Pressable onPressIn={() => animateTo(scaleTo)} onPressOut={() => animateTo(1)} onPress={onPress}>
       <Animated.View style={[style, { transform: [{ scale }] }]}>{children}</Animated.View>
     </Pressable>
   );
@@ -152,10 +155,10 @@ function EmptyState({ text, icon = 'restaurant-outline' }) {
   );
 }
 
-function RecipeCard({ recipe, onPress, onToggleFavorite, onDelete, isChefsPick }) {
+function RecipeCardInner({ recipe, onPress, onToggleFavorite, isChefsPick }) {
   const meta = CATEGORY_META[recipe.category] || CATEGORY_META.Other;
   return (
-    <Pressy onPress={onPress} onLongPress={onDelete} style={[styles.recipeCard, shadow]}>
+    <Pressy onPress={onPress} style={[styles.recipeCard, shadow]}>
       <View style={[styles.cardAccent, { backgroundColor: meta.bar }]} />
       {isChefsPick && (
         <View style={styles.chefsPickBadge}>
@@ -198,6 +201,43 @@ function RecipeCard({ recipe, onPress, onToggleFavorite, onDelete, isChefsPick }
         </View>
       </View>
     </Pressy>
+  );
+}
+
+// Swipe-left-to-delete wrapper, Instagram/Mail style
+function SwipeableRecipeCard({ recipe, onPress, onToggleFavorite, onDelete, isChefsPick }) {
+  const swipeRef = useRef(null);
+
+  const renderRightActions = (progress, dragX) => {
+    const scale = dragX.interpolate({ inputRange: [-80, 0], outputRange: [1, 0.5], extrapolate: 'clamp' });
+    return (
+      <TouchableOpacity
+        style={styles.deleteAction}
+        activeOpacity={0.85}
+        onPress={() => {
+          swipeRef.current?.close();
+          haptic('warning');
+          onDelete();
+        }}
+      >
+        <Animated.View style={{ transform: [{ scale }], alignItems: 'center' }}>
+          <Ionicons name="trash" size={22} color="#fff" />
+          <Text style={styles.deleteActionText}>Delete</Text>
+        </Animated.View>
+      </TouchableOpacity>
+    );
+  };
+
+  return (
+    <Swipeable
+      ref={swipeRef}
+      renderRightActions={renderRightActions}
+      overshootRight={false}
+      rightThreshold={40}
+      onSwipeableWillOpen={() => haptic()}
+    >
+      <RecipeCardInner recipe={recipe} onPress={onPress} onToggleFavorite={onToggleFavorite} isChefsPick={isChefsPick} />
+    </Swipeable>
   );
 }
 
@@ -538,7 +578,7 @@ export default function App() {
 
           <Text style={styles.sectionTitle}>Recipes For You</Text>
           {results.recipes.map((recipe) => (
-            <RecipeCard key={recipe.id} recipe={recipe} onPress={() => openRecipeDetails(recipe)}
+            <SwipeableRecipeCard key={recipe.id} recipe={recipe} onPress={() => openRecipeDetails(recipe)}
               onToggleFavorite={() => toggleFavorite(recipe.id)} onDelete={() => confirmDelete(recipe)} />
           ))}
 
@@ -613,7 +653,7 @@ export default function App() {
           <EmptyState text="No recipes yet — scan your fridge to get started." />
         ) : (
           allRecipes.slice(0, 4).map((recipe) => (
-            <RecipeCard key={recipe.id} recipe={recipe} isChefsPick={recipe.id === topRatedId && recipe.average_rating}
+            <SwipeableRecipeCard key={recipe.id} recipe={recipe} isChefsPick={recipe.id === topRatedId && recipe.average_rating}
               onPress={() => openRecipeDetails(recipe)} onToggleFavorite={() => toggleFavorite(recipe.id)} onDelete={() => confirmDelete(recipe)} />
           ))
         )}
@@ -670,7 +710,11 @@ export default function App() {
         </View>
       )}
 
-      <ScrollView contentContainerStyle={{ paddingBottom: 40, paddingTop: 10 }}
+      {allRecipes.length > 0 && (
+        <Text style={styles.swipeHint}>Swipe left on a recipe to delete</Text>
+      )}
+
+      <ScrollView contentContainerStyle={{ paddingBottom: 40, paddingTop: 6 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.coral} />}>
         {loadingRecipes ? (
           <>{[1, 2, 3].map((i) => <SkeletonCard key={i} />)}</>
@@ -680,7 +724,7 @@ export default function App() {
           <EmptyState text="No recipes match your search." icon="search-outline" />
         ) : (
           filteredRecipes.map((recipe) => (
-            <RecipeCard key={recipe.id} recipe={recipe} isChefsPick={recipe.id === topRatedId && recipe.average_rating}
+            <SwipeableRecipeCard key={recipe.id} recipe={recipe} isChefsPick={recipe.id === topRatedId && recipe.average_rating}
               onPress={() => openRecipeDetails(recipe)} onToggleFavorite={() => toggleFavorite(recipe.id)} onDelete={() => confirmDelete(recipe)} />
           ))
         )}
@@ -698,7 +742,7 @@ export default function App() {
         <EmptyState text="No favorites yet — tap the heart on a recipe to save it here." icon="heart-outline" />
       ) : (
         favoriteRecipes.map((recipe) => (
-          <RecipeCard key={recipe.id} recipe={recipe} onPress={() => openRecipeDetails(recipe)} onToggleFavorite={() => toggleFavorite(recipe.id)} onDelete={() => confirmDelete(recipe)} />
+          <SwipeableRecipeCard key={recipe.id} recipe={recipe} onPress={() => openRecipeDetails(recipe)} onToggleFavorite={() => toggleFavorite(recipe.id)} onDelete={() => confirmDelete(recipe)} />
         ))
       )}
     </ScrollView>
@@ -793,41 +837,43 @@ export default function App() {
   );
 
   return (
-    <View style={styles.appRoot}>
-      {activeTab === 'home' && renderHome()}
-      {activeTab === 'recipes' && renderRecipes()}
-      {activeTab === 'scan' && renderScan()}
-      {activeTab === 'favorites' && renderFavorites()}
-      {activeTab === 'profile' && renderProfile()}
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <View style={styles.appRoot}>
+        {activeTab === 'home' && renderHome()}
+        {activeTab === 'recipes' && renderRecipes()}
+        {activeTab === 'scan' && renderScan()}
+        {activeTab === 'favorites' && renderFavorites()}
+        {activeTab === 'profile' && renderProfile()}
 
-      <View style={styles.tabBar}>
-        <TouchableOpacity style={styles.tabItem} onPress={() => { haptic(); setActiveTab('home'); }}>
-          <Ionicons name={activeTab === 'home' ? 'home' : 'home-outline'} size={22} color={activeTab === 'home' ? COLORS.coral : COLORS.inkMuted} />
-          <Text style={[styles.tabLabel, activeTab === 'home' && styles.tabLabelActive]}>Home</Text>
-        </TouchableOpacity>
+        <View style={styles.tabBar}>
+          <TouchableOpacity style={styles.tabItem} onPress={() => { haptic(); setActiveTab('home'); }}>
+            <Ionicons name={activeTab === 'home' ? 'home' : 'home-outline'} size={22} color={activeTab === 'home' ? COLORS.coral : COLORS.inkMuted} />
+            <Text style={[styles.tabLabel, activeTab === 'home' && styles.tabLabelActive]}>Home</Text>
+          </TouchableOpacity>
 
-        <TouchableOpacity style={styles.tabItem} onPress={() => { haptic(); setActiveTab('recipes'); }}>
-          <Ionicons name={activeTab === 'recipes' ? 'book' : 'book-outline'} size={22} color={activeTab === 'recipes' ? COLORS.coral : COLORS.inkMuted} />
-          <Text style={[styles.tabLabel, activeTab === 'recipes' && styles.tabLabelActive]}>Recipes</Text>
-        </TouchableOpacity>
+          <TouchableOpacity style={styles.tabItem} onPress={() => { haptic(); setActiveTab('recipes'); }}>
+            <Ionicons name={activeTab === 'recipes' ? 'book' : 'book-outline'} size={22} color={activeTab === 'recipes' ? COLORS.coral : COLORS.inkMuted} />
+            <Text style={[styles.tabLabel, activeTab === 'recipes' && styles.tabLabelActive]}>Recipes</Text>
+          </TouchableOpacity>
 
-        <TouchableOpacity style={styles.tabItemCenter} onPress={() => { haptic('medium'); setActiveTab('scan'); }}>
-          <LinearGradient colors={[COLORS.coral, COLORS.coralDeep]} style={styles.tabCenterButton}>
-            <Ionicons name="camera" size={23} color="#fff" />
-          </LinearGradient>
-        </TouchableOpacity>
+          <TouchableOpacity style={styles.tabItemCenter} onPress={() => { haptic('medium'); setActiveTab('scan'); }}>
+            <LinearGradient colors={[COLORS.coral, COLORS.coralDeep]} style={styles.tabCenterButton}>
+              <Ionicons name="camera" size={23} color="#fff" />
+            </LinearGradient>
+          </TouchableOpacity>
 
-        <TouchableOpacity style={styles.tabItem} onPress={() => { haptic(); setActiveTab('favorites'); }}>
-          <Ionicons name={activeTab === 'favorites' ? 'heart' : 'heart-outline'} size={22} color={activeTab === 'favorites' ? COLORS.coral : COLORS.inkMuted} />
-          <Text style={[styles.tabLabel, activeTab === 'favorites' && styles.tabLabelActive]}>Favorites</Text>
-        </TouchableOpacity>
+          <TouchableOpacity style={styles.tabItem} onPress={() => { haptic(); setActiveTab('favorites'); }}>
+            <Ionicons name={activeTab === 'favorites' ? 'heart' : 'heart-outline'} size={22} color={activeTab === 'favorites' ? COLORS.coral : COLORS.inkMuted} />
+            <Text style={[styles.tabLabel, activeTab === 'favorites' && styles.tabLabelActive]}>Favorites</Text>
+          </TouchableOpacity>
 
-        <TouchableOpacity style={styles.tabItem} onPress={() => { haptic(); setActiveTab('profile'); }}>
-          <Ionicons name={activeTab === 'profile' ? 'person' : 'person-outline'} size={22} color={activeTab === 'profile' ? COLORS.coral : COLORS.inkMuted} />
-          <Text style={[styles.tabLabel, activeTab === 'profile' && styles.tabLabelActive]}>Profile</Text>
-        </TouchableOpacity>
+          <TouchableOpacity style={styles.tabItem} onPress={() => { haptic(); setActiveTab('profile'); }}>
+            <Ionicons name={activeTab === 'profile' ? 'person' : 'person-outline'} size={22} color={activeTab === 'profile' ? COLORS.coral : COLORS.inkMuted} />
+            <Text style={[styles.tabLabel, activeTab === 'profile' && styles.tabLabelActive]}>Profile</Text>
+          </TouchableOpacity>
+        </View>
       </View>
-    </View>
+    </GestureHandlerRootView>
   );
 }
 
@@ -845,21 +891,9 @@ const styles = StyleSheet.create({
 
   logoGradient: { justifyContent: 'center', alignItems: 'center', ...shadow },
 
-  heroBlock: {
-    paddingTop: 60,
-    paddingBottom: 30,
-    borderBottomLeftRadius: 32,
-    borderBottomRightRadius: 32,
-    overflow: 'hidden',
-  },
-  heroDecorCircle1: {
-    position: 'absolute', width: 140, height: 140, borderRadius: 70,
-    backgroundColor: 'rgba(255,255,255,0.35)', top: -50, right: -30,
-  },
-  heroDecorCircle2: {
-    position: 'absolute', width: 90, height: 90, borderRadius: 45,
-    backgroundColor: 'rgba(255,255,255,0.25)', bottom: -30, left: -20,
-  },
+  heroBlock: { paddingTop: 60, paddingBottom: 30, borderBottomLeftRadius: 32, borderBottomRightRadius: 32, overflow: 'hidden' },
+  heroDecorCircle1: { position: 'absolute', width: 140, height: 140, borderRadius: 70, backgroundColor: 'rgba(255,255,255,0.35)', top: -50, right: -30 },
+  heroDecorCircle2: { position: 'absolute', width: 90, height: 90, borderRadius: 45, backgroundColor: 'rgba(255,255,255,0.25)', bottom: -30, left: -20 },
   brandBlock: { alignItems: 'center' },
   brandBlockPlain: { alignItems: 'center', marginBottom: 22, marginTop: 6 },
   greetingText: { fontSize: 12, color: COLORS.coralDeep, fontWeight: '700', marginTop: 12, letterSpacing: 0.5, textTransform: 'uppercase' },
@@ -895,6 +929,8 @@ const styles = StyleSheet.create({
   sortChipActive: { backgroundColor: COLORS.sageSoft },
   sortChipText: { fontSize: 12, color: COLORS.inkMuted, fontWeight: '600' },
   sortChipTextActive: { color: COLORS.sage },
+
+  swipeHint: { fontSize: 11, color: COLORS.inkMuted, marginBottom: 8, fontStyle: 'italic' },
 
   emptyStateBox: { alignItems: 'center', backgroundColor: COLORS.surface, borderRadius: 16, borderWidth: 1, borderColor: COLORS.line, paddingVertical: 30, paddingHorizontal: 20 },
   emptyStateText: { fontSize: 13, color: COLORS.inkMuted, textAlign: 'center', marginTop: 8, lineHeight: 18 },
@@ -983,6 +1019,9 @@ const styles = StyleSheet.create({
   categoryStatCount: { fontSize: 12, color: COLORS.inkMuted, fontWeight: '700' },
   aboutCard: { backgroundColor: COLORS.surface, borderRadius: 16, borderWidth: 1, borderColor: COLORS.line, padding: 16, marginTop: 24 },
   aboutTitle: { fontSize: 15, fontWeight: '700', color: COLORS.ink, marginBottom: 6 },
+
+  deleteAction: { backgroundColor: COLORS.danger, justifyContent: 'center', alignItems: 'center', width: 80, borderRadius: 18, marginBottom: 12, marginLeft: 8 },
+  deleteActionText: { color: '#fff', fontSize: 11, fontWeight: '700', marginTop: 4 },
 
   tabBar: { flexDirection: 'row', height: 78, backgroundColor: COLORS.surface, borderTopWidth: 1, borderTopColor: COLORS.line, paddingBottom: 18, paddingTop: 8 },
   tabItem: { flex: 1, justifyContent: 'center', alignItems: 'center' },
