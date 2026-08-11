@@ -21,7 +21,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 
-const API_URL = 'http://192.168.1.68:8000';
+const API_URL = 'https://yummy-backend2.onrender.com';
 
 const COLORS = {
   bg: '#F7F3EE',
